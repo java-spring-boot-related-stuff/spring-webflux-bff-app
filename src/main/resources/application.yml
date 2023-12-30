@@ -17,6 +17,8 @@ gateway-app:
   hosts:
     - id: google-gateway
       uri: https://google.com
+    - id: microsoft-host
+      uri: https://www.microsoft.com
     - id: dummy-json
       uri: https://dummyjson.com
     - id: local-server
@@ -26,6 +28,23 @@ gateway-app:
       host-id: dummy-json
       predicates:
         - Path=/products
+        - RequestMethod=GET,POST
+      upstream:
+        contextPath: /products
+        method: GET
+    - id: microsoft-website-query
+      host-id: microsoft-host
+      predicates:
+        - Path=/path-by-query
+        - Query=site,microsoft
+      upstream:
+        contextPath: /products
+        method: GET
+    - id: google-website-query
+      host-id: google-gateway
+      predicates:
+        - Path=/path-by-query
+        - Query=site,google
       upstream:
         contextPath: /products
         method: GET

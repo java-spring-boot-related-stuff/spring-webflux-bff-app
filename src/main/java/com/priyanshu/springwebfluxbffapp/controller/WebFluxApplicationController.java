@@ -22,12 +22,12 @@ public class WebFluxApplicationController {
     }
 
     @GetMapping("/**")
-    public Mono<ResponseEntity<Object>> handleGet(ServerWebExchange exchange, @RequestBody(required = false) DataBuffer requestBody) {
+    public Mono<ResponseEntity<DataBuffer>> handleGet(ServerWebExchange exchange, @RequestBody(required = false) DataBuffer requestBody) {
         return this.gatewayApp.handle(exchange,requestBody);
     }
 
     @PostMapping("/**")
-    public Mono<ResponseEntity<Object>> handlePost(ServerWebExchange exchange, @RequestBody(required = false) DataBuffer requestBody) {
+    public Mono<ResponseEntity<DataBuffer>> handlePost(ServerWebExchange exchange, @RequestBody(required = false) DataBuffer requestBody) {
         return this.gatewayApp.handle(exchange,requestBody);
     }
 

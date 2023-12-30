@@ -29,36 +29,33 @@ public class PathPredicateBuilder implements PredicateBuilder {
             }
         }
 
-        return new Predicate<ServerWebExchange>() {
-            @Override
-            public boolean test(ServerWebExchange serverWebExchange) {
+        return serverWebExchange -> {
 
-                // Fetch Current Path Either From ServerWebExchange or Compute it.
-                PathContainer path = (PathContainer) serverWebExchange.getAttributes().computeIfAbsent(
-                        GatewayConstants.PATH_CONTAINER_ATTR,
-                        s -> PathContainer.parsePath(serverWebExchange.getRequest().getURI().getRawPath()));
+            // Fetch Current Path Either From ServerWebExchange or Compute it.
+            PathContainer path = (PathContainer) serverWebExchange.getAttributes().computeIfAbsent(
+                    GatewayConstants.PATH_CONTAINER_ATTR,
+                    s -> PathContainer.parsePath(serverWebExchange.getRequest().getURI().getRawPath()));
 
-                PathPattern match = null;
+            PathPattern match = null;
 
-                // Try to match path against each compiled pattern.
-                for (PathPattern pathPattern : pathPatterns) {
-                    if (pathPattern.matches(path)) {
-                        match = pathPattern;
-                        break;
-                    }
+            // Try to match path against each compiled pattern.
+            for (PathPattern pathPattern : pathPatterns) {
+                if (pathPattern.matches(path)) {
+                    match = pathPattern;
+                    break;
                 }
-
-                if (match != null) {
-                    PathPattern.PathMatchInfo pathMatchInfo = match.matchAndExtract(path);
-                    ServerWebExchangePropertiesUtils.putUriTemplateVariables(serverWebExchange, pathMatchInfo.getUriVariables());
-                    serverWebExchange.getAttributes().put(ServerWebExchangePropertiesUtils.MATCHED_PATH_ATTR, match.getPatternString());
-                    return true;
-                }
-                else {
-                    return false;
-                }
-
             }
+
+            if (match != null) {
+                PathPattern.PathMatchInfo pathMatchInfo = match.matchAndExtract(path);
+                ServerWebExchangePropertiesUtils.putUriTemplateVariables(serverWebExchange, pathMatchInfo.getUriVariables());
+                serverWebExchange.getAttributes().put(ServerWebExchangePropertiesUtils.MATCHED_PATH_ATTR, match.getPatternString());
+                return true;
+            }
+            else {
+                return false;
+            }
+
         };
     }
 }

@@ -1,22 +1,26 @@
 package com.priyanshu.springwebfluxbffapp.proxy;
 
 import com.priyanshu.springwebfluxbffapp.proxy.model.GatewayRequest;
+import com.priyanshu.springwebfluxbffapp.proxy.model.GatewayResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.reactive.function.BodyInserters;
-import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 
 import java.net.URI;
+import java.time.Duration;
 
-public class ProxyExchange<T> {
+public class ProxyExchange {
 
     private static final Logger log= LoggerFactory.getLogger(ProxyExchange.class);
 
@@ -24,13 +28,17 @@ public class ProxyExchange<T> {
 
     private WebClient webClient;
 
+    private int retry= 1;
+    
+    private Class<?> responseType= DataBuffer.class;
 
-    public ProxyExchange<T> gatewayRequest(GatewayRequest gatewayRequest) {
+
+    public ProxyExchange gatewayRequest(GatewayRequest gatewayRequest) {
         this.gatewayRequest= gatewayRequest;
         return this;
     }
 
-    public ProxyExchange<T> build() {
+    public ProxyExchange build() {
         if(null== this.webClient) {
             this.webClient= webClient();
         }
@@ -38,8 +46,24 @@ public class ProxyExchange<T> {
         return this;
     }
 
+    /**
+     * Sets the retry property on ProxyExchange
+     * @param retry Retry Value From 0 to 5 Range.
+     *  If provided retry < 0, then 0 is set. If it is provided > 5 then 5 is set.
+     * @return ProxyExchangeObject itself to implement Builder Pattern.
+     */
+    public ProxyExchange retry(short retry) {
+        this.retry= Math.min(Math.max(retry, 0), 5);
+        return this;
+    }
 
-    public Mono<ResponseEntity<T>> exchange() {
+    public ProxyExchange responseType(Class<?> responseType) {
+        this.responseType= responseType;
+        return this;
+    }
+
+
+    public Mono<GatewayResponse> exchange() {
 
         URI finalUri = buildUri();
 
@@ -48,37 +72,81 @@ public class ProxyExchange<T> {
                 .headers(httpHeaders -> httpHeaders.addAll(gatewayRequest.getHeaders()));
 
         WebClient.ResponseSpec result;
-
         if(gatewayRequest.getBody() == null) {
             result= builder.retrieve();
         }
         else {
             result = builder.body(BodyInserters.fromValue(gatewayRequest.getBody())).retrieve();
         }
-
-        return result.onStatus(HttpStatusCode::isError, t -> Mono.empty())
-                .toEntity(ParameterizedTypeReference.forType(String.class));
+        return result
+                .toEntity(ParameterizedTypeReference.forType(responseType))
+                .retryWhen(Retry.backoff(this.retry, Duration.ofSeconds(1)).jitter(0.75))
+                .flatMap(this::mapToGatewayResponse)
+                .onErrorResume(this::handleError);
     }
 
-    private static ExchangeFilterFunction handleNon200Status() {
-        return ExchangeFilterFunction.ofResponseProcessor(clientResponse -> {
-            if (clientResponse.statusCode() != HttpStatus.OK) {
-                // Handle non-200 status codes
-                // You can log, transform, or propagate the error downstream as needed
-                System.err.println("Non-200 status code: " + clientResponse.statusCode());
-
-                // Returning the original response ensures that the error is propagated downstream
-                return clientResponse.bodyToMono(String.class)
-                        .flatMap(errorBody -> {
-                            log.debug(errorBody);
-                            return Mono.just(clientResponse);
-                        });
-            }
-
-            // Continue with the original response for 200 status codes
-            return Mono.just(clientResponse);
-        });
+    private Mono<GatewayResponse> mapToGatewayResponse(ResponseEntity<Object> entity) {
+        GatewayResponse response = new GatewayResponse<>();
+        response.setStatusCode(entity.getStatusCode().value());
+        response.setHeaders(entity.getHeaders());
+        response.setBody(entity.getBody());
+        return Mono.just(response);
     }
+
+    private Mono<GatewayResponse<String>> handleError(Throwable throwable) {
+
+        if (throwable instanceof WebClientResponseException ex) {
+            return handleWebClientResponseException(ex);
+        }
+        else if(throwable.getCause() != null && throwable.getCause() instanceof WebClientResponseException ex) {
+            return handleWebClientResponseException(ex);
+        }
+        else if(throwable instanceof WebClientRequestException ex) {
+            return handleWebClientRequestException(ex);
+        }
+        else if(throwable.getCause() != null && throwable.getCause() instanceof WebClientRequestException ex) {
+            return handleWebClientRequestException(ex);
+        }
+        else {
+            return handleUnknownException(throwable);
+        }
+
+    }
+
+    private Mono<GatewayResponse<String>> handleWebClientRequestException(WebClientRequestException ex) {
+
+        log.error("Unable To Send Request to {}, Exception: {}", ex.getUri(), ex.getMessage(), ex);
+
+        GatewayResponse<String> response = new GatewayResponse<>();
+        response.setStatusCode(-1);
+        response.setHeaders(new HttpHeaders());
+        response.setErrorBody("Unable to Connect With Upstream Server");
+        return Mono.just(response);
+    }
+
+    private Mono<GatewayResponse<String>> handleWebClientResponseException(WebClientResponseException ex) {
+
+        GatewayResponse<String> response = new GatewayResponse<>();
+        response.setStatusCode(ex.getStatusCode().value());
+        response.setHeaders(ex.getHeaders());
+        response.setErrorBody(ex.getResponseBodyAsString());
+
+        log.warn("Http Status: {} Received From Upstream With Body: {} Exception: ", ex.getStatusCode(),response.getErrorBody(), ex);
+        return Mono.just(response);
+    }
+
+    private Mono<GatewayResponse<String>> handleUnknownException(Throwable ex) {
+
+        log.error("Unhandled Exception Occurred During Webclient Call", ex);
+
+        GatewayResponse<String> response = new GatewayResponse<>();
+        response.setStatusCode(-1); // Custom status code for connection errors
+        response.setHeaders(new HttpHeaders());
+        response.setErrorBody("Unable to Connect With Upstream Server");
+        return Mono.just(response);
+    }
+
+
 
     private URI buildUri() {
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(gatewayRequest.getAbsoluteUri());
