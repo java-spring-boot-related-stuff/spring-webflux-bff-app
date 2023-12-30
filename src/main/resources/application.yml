@@ -1,0 +1,42 @@
+spring:
+  cloud:
+    gateway:
+      enabled: false
+      routes:
+        - id: google-route
+          uri: https://www.google.com
+          predicates:
+            - Path=/red/{segment}
+            - Method=GET
+          filters:
+            - AddRequestHeader=X-Request-red, blue
+
+
+gateway-app:
+  enabled: true
+  hosts:
+    - id: google-gateway
+      uri: https://google.com
+    - id: dummy-json
+      uri: https://dummyjson.com
+    - id: local-server
+      uri: http://localhost:5000
+  routes:
+    - id: dummy-json-products-list
+      host-id: dummy-json
+      predicates:
+        - Path=/products
+      upstream:
+        contextPath: /products
+        method: GET
+    - id: google-website
+      host-id: google-gateway
+      predicates:
+        - Path=/**
+      upstream:
+        method: GET
+
+
+logging:
+  level:
+    com.priyanshu.springwebfluxbffapp: debug
