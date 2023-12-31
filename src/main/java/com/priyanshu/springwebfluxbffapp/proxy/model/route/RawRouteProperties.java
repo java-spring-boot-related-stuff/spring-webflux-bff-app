@@ -8,9 +8,29 @@ public class RawRouteProperties{
 
     private String id;
     private String hostId;
-    private Upstream upstream;
 
     private List<String> predicates;
+    private Upstream upstream;
+
+    private List<String> requestModifiers;
+
+    private List<String> responseModifiers;
+
+    public List<String> getRequestModifiers() {
+        return requestModifiers;
+    }
+
+    public void setRequestModifiers(List<String> requestModifiers) {
+        this.requestModifiers = requestModifiers;
+    }
+
+    public List<String> getResponseModifiers() {
+        return responseModifiers;
+    }
+
+    public void setResponseModifiers(List<String> responseModifiers) {
+        this.responseModifiers = responseModifiers;
+    }
 
     public String getId() {
         return id;
